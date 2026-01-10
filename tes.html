@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi RFID & Kamera</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .video-container {
+            position: relative;
+            overflow: hidden;
+            border-radius: 1rem;
+            background: #000;
+        }
+        #video {
+            width: 100%;
+            height: auto;
+            /* Default mirror untuk selfie/kamera depan */
+            transform: scaleX(-1);
+        }
+        .shutter-effect {
+            animation: flash 0.2s ease-out;
+        }
+        @keyframes flash {
+            0% { background: white; opacity: 1; }
+            100% { background: transparent; opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans">
+
+    <div class="max-w-6xl mx-auto p-4 md:p-8">
+        <!-- Header -->
+        <header class="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-800">Sistem Absensi Digital</h1>
+                <p class="text-slate-500 text-sm">Silakan tap kartu RFID Anda pada alat pembaca</p>
+            </div>
+            <div id="clock" class="text-2xl font-mono font-semibold text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-100">
+                00:00:00
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- Sisi Kiri: Kamera & Input -->
+            <div class="lg:col-span-5 space-y-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Kamera Pengawas
+                    </h2>
+                    <div class="video-container mb-4">
+                        <video id="video" autoplay playsinline muted></video>
+                        <div id="shutter" class="absolute inset-0 pointer-events-none"></div>
+                    </div>
+                    
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="switchCamera('user')" class="flex-1 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg text-sm font-medium">Kamera Depan</button>
+                        <button onclick="switchCamera('environment')" class="flex-1 bg-slate-100 hover:bg-slate-200 py-2 rounded-lg text-sm font-medium">Kamera Belakang</button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <label class="block">
+                            <span class="text-sm font-medium text-slate-700">Input RFID (Otomatis)</span>
+                            <input type="text" id="rfidInput" autofocus
+                                class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all"
+                                placeholder="Klik di sini & Tap Kartu...">
+                        </label>
+                        <p class="text-xs text-slate-400 italic">*Alat RFID Reader akan otomatis mengisi kolom ini.</p>
+                    </div>
+                </div>
+
+                <!-- Notifikasi Status -->
+                <div id="statusAlert" class="hidden p-4 rounded-xl border flex items-center gap-3 animate-bounce">
+                    <div id="statusIcon"></div>
+                    <div>
+                        <p id="statusTitle" class="font-bold"></p>
+                        <p id="statusMessage" class="text-sm"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sisi Kanan: Tabel Log & Data -->
+            <div class="lg:col-span-7 space-y-6">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <h2 class="font-semibold text-slate-800">Riwayat Kehadiran Hari Ini</h2>
+                        <button onclick="exportToCSV()" class="text-sm text-blue-600 font-medium hover:underline">Ekspor CSV</button>
+                    </div>
+                    <div class="overflow-x-auto max-h-[600px]">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                <tr>
+                                    <th class="px-6 py-4">Foto</th>
+                                    <th class="px-6 py-4">Nama / RFID</th>
+                                    <th class="px-6 py-4">Waktu</th>
+                                    <th class="px-6 py-4">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendanceLog" class="divide-y divide-slate-100">
+                                <!-- Data akan muncul di sini -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Canvas untuk capture foto -->
+    <canvas id="canvas" width="640" height="480" class="hidden"></canvas>
+
+    <script>
+        // Data Dummy Siswa
+        const databaseSiswa = {
+            "1234567890": { nama: "Andi Wijaya", kelas: "XII-IPA-1" },
+            "0987654321": { nama: "Siti Badriah", kelas: "XII-IPS-2" },
+            "1122334455": { nama: "Budi Santoso", kelas: "XI-IPA-3" }
+        };
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const rfidInput = document.getElementById('rfidInput');
+        const attendanceLog = document.getElementById('attendanceLog');
+        const shutter = document.getElementById('shutter');
+        
+        let currentStream = null;
+        let logs = JSON.parse(localStorage.getItem('absensi_logs')) || [];
+
+        // 1. Inisialisasi Kamera Universal
+        async function setupCamera(facingMode = "user") {
+            // Hentikan stream yang sudah ada jika ada
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: {
+                    facingMode: facingMode,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                
+                // Mirror effect hanya untuk kamera depan (user)
+                video.style.transform = facingMode === "user" ? "scaleX(-1)" : "scaleX(1)";
+                
+                video.onloadedmetadata = () => {
+                    video.play().catch(e => console.error("Auto-play blocked:", e));
+                };
+            } catch (err) {
+                console.error("Gagal akses kamera:", err);
+                let errMsg = "Pastikan memberikan izin kamera.";
+                if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                    errMsg = "Akses kamera memerlukan koneksi aman (HTTPS).";
+                }
+                showStatus("error", "Kamera Tidak Aktif", errMsg);
+            }
+        }
+
+        function switchCamera(mode) {
+            setupCamera(mode);
+        }
+
+        // 2. Jam Real-time
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString('id-ID');
+        }
+        setInterval(updateClock, 1000);
+
+        // 3. Proses Absensi
+        async function processAbsence(rfid) {
+            const user = databaseSiswa[rfid];
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('id-ID');
+            const dateStr = now.toLocaleDateString('id-ID');
+            
+            // Efek Kamera (Shutter)
+            shutter.classList.add('shutter-effect');
+            setTimeout(() => shutter.classList.remove('shutter-effect'), 200);
+
+            // Ambil Gambar
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+
+            // Jika kamera depan, mirror hasil fotonya juga
+            if (video.style.transform === "scaleX(-1)") {
+                context.translate(canvas.width, 0);
+                context.scale(-1, 1);
+            }
+            
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            
+            const photoData = canvas.toDataURL('image/jpeg', 0.7);
+
+            if (user) {
+                const newEntry = {
+                    rfid: rfid,
+                    nama: user.nama,
+                    waktu: timeStr,
+                    tanggal: dateStr,
+                    foto: photoData,
+                    status: "Hadir"
+                };
+                
+                logs.unshift(newEntry);
+                saveAndRender();
+                showStatus("success", "Berhasil Absen", `Halo, ${user.nama}. Kehadiran tercatat.`);
+            } else {
+                showStatus("error", "Gagal!", `ID RFID (${rfid}) tidak terdaftar.`);
+            }
+
+            rfidInput.value = "";
+            rfidInput.focus();
+        }
+
+        function saveAndRender() {
+            localStorage.setItem('absensi_logs', JSON.stringify(logs.slice(0, 50)));
+            renderLogs();
+        }
+
+        function renderLogs() {
+            attendanceLog.innerHTML = logs.map(log => `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4">
+                        <img src="${log.foto}" class="w-12 h-12 rounded-lg object-cover border border-slate-200 shadow-sm" alt="Foto">
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="font-semibold text-slate-800">${log.nama}</div>
+                        <div class="text-xs text-slate-400">${log.rfid}</div>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-slate-600">
+                        ${log.waktu}
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="px-2 py-1 text-xs font-bold rounded-full bg-green-100 text-green-700">HADIR</span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function showStatus(type, title, msg) {
+            const alertBox = document.getElementById('statusAlert');
+            const titleEl = document.getElementById('statusTitle');
+            const msgEl = document.getElementById('statusMessage');
+            const iconEl = document.getElementById('statusIcon');
+
+            alertBox.className = type === "success" 
+                ? "flex p-4 rounded-xl border border-green-200 bg-green-50 text-green-800 gap-3"
+                : "flex p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 gap-3";
+            
+            titleEl.innerText = title;
+            msgEl.innerText = msg;
+            iconEl.innerHTML = type === "success" 
+                ? `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>`
+                : `<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>`;
+
+            alertBox.classList.remove('hidden');
+            setTimeout(() => alertBox.classList.add('hidden'), 4000);
+        }
+
+        // 4. Event Listeners
+        rfidInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const value = this.value.trim();
+                if (value) processAbsence(value);
+            }
+        });
+
+        document.addEventListener('click', () => rfidInput.focus());
+
+        function exportToCSV() {
+            if (logs.length === 0) return alert("Belum ada data.");
+            let csv = "RFID,Nama,Tanggal,Waktu,Status\r\n" + 
+                      logs.map(l => `${l.rfid},${l.nama},${l.tanggal},${l.waktu},${l.status}`).join("\r\n");
+            const link = document.createElement("a");
+            link.href = "data:text/csv;charset=utf-8," + encodeURI(csv);
+            link.download = `absensi_${new Date().toLocaleDateString()}.csv`;
+            link.click();
+        }
+
+        // Jalankan awal
+        setupCamera();
+        renderLogs();
+        updateClock();
+    </script>
+</body>
+</html>
